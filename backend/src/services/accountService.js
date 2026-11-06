@@ -999,12 +999,491 @@ const withdrawMoney = async (
     client.release();
   }
 };
+// =====================================
+// TRANSFER MONEY
+// DOUBLE-ENTRY ACCOUNTING
+// =====================================
 
+const transferMoney = async (
+  userId,
+  sourceAccountId,
+  targetAccountId,
+  amountPaise,
+  idempotencyKey
+) => {
+  const client = await pool.connect();
+
+  const requestHash = crypto
+    .createHash("sha256")
+    .update(
+      `transfer:${sourceAccountId}:${targetAccountId}:${amountPaise}`
+    )
+    .digest("hex");
+
+  let transactionStarted = false;
+
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    // 1. CHECK IDEMPOTENCY
+
+    const keyResult = await client.query(
+      `INSERT INTO idempotency_keys
+       (user_id, idempotency_key, request_hash, status)
+       VALUES ($1, $2, $3, 'processing')
+       ON CONFLICT (user_id, idempotency_key)
+       DO NOTHING
+       RETURNING id`,
+      [userId, idempotencyKey, requestHash]
+    );
+
+    if (keyResult.rowCount === 0) {
+      const existingResult = await client.query(
+        `SELECT request_hash, status, response_body
+         FROM idempotency_keys
+         WHERE user_id = $1
+           AND idempotency_key = $2
+         FOR UPDATE`,
+        [userId, idempotencyKey]
+      );
+
+      const existing = existingResult.rows[0];
+
+      if (existing.request_hash !== requestHash) {
+        throw createError(
+          "Idempotency key already used with different request data",
+          409
+        );
+      }
+
+      if (existing.status === "completed") {
+        await client.query("COMMIT");
+        transactionStarted = false;
+
+        return {
+          ...existing.response_body,
+          replayed: true
+        };
+      }
+
+      throw createError(
+        "This request is already being processed",
+        409
+      );
+    }
+
+    // 2. VALIDATE SOURCE AND TARGET ACCOUNTS
+
+    if (sourceAccountId === targetAccountId) {
+      throw createError(
+        "Source and destination accounts must be different",
+        400
+      );
+    }
+
+    // Lock both accounts in a consistent order to reduce deadlocks.
+    const accountsResult = await client.query(
+      `SELECT
+         id,
+         account_number,
+         account_name,
+         account_type,
+         balance_paise,
+         currency,
+         status
+       FROM accounts
+       WHERE id = ANY($1::uuid[])
+       ORDER BY id
+       FOR UPDATE`,
+      [[sourceAccountId, targetAccountId]]
+    );
+
+    if (accountsResult.rowCount !== 2) {
+      throw createError("Source or destination account not found", 404);
+    }
+
+    const sourceAccount = accountsResult.rows.find(
+      account => account.id === sourceAccountId
+    );
+
+    const targetAccount = accountsResult.rows.find(
+      account => account.id === targetAccountId
+    );
+
+    if (
+      sourceAccount.account_type !== "customer" ||
+      targetAccount.account_type !== "customer"
+    ) {
+      throw createError(
+        "Transfers are allowed only between customer accounts",
+        403
+      );
+    }
+
+    // 3. CHECK SOURCE ACCOUNT PERMISSION
+
+    const permissionResult = await client.query(
+      `SELECT can_transfer
+       FROM account_permissions
+       WHERE user_id = $1
+         AND account_id = $2`,
+      [userId, sourceAccountId]
+    );
+
+    if (
+      permissionResult.rowCount === 0 ||
+      !permissionResult.rows[0].can_transfer
+    ) {
+      throw createError(
+        "You do not have permission to transfer from this account",
+        403
+      );
+    }
+
+    // 4. CHECK ACCOUNT STATUS AND CURRENCY
+
+    if (
+      sourceAccount.status !== "active" ||
+      targetAccount.status !== "active"
+    ) {
+      throw createError(
+        "Both accounts must be active",
+        409
+      );
+    }
+
+    if (
+      sourceAccount.currency !== "INR" ||
+      targetAccount.currency !== "INR"
+    ) {
+      throw createError(
+        "Only INR transfers are supported",
+        400
+      );
+    }
+
+    // 5. CHECK SOURCE BALANCE
+
+    const currentBalance = BigInt(sourceAccount.balance_paise);
+    const transferAmount = BigInt(amountPaise);
+
+    if (transferAmount <= 0n) {
+      throw createError("Transfer amount must be greater than zero", 400);
+    }
+
+    if (currentBalance < transferAmount) {
+      throw createError("Insufficient account balance", 409);
+    }
+
+    // 6. CREATE TRANSACTION
+
+    const transactionResult = await client.query(
+      `INSERT INTO transactions
+       (
+         transaction_type,
+         status,
+         initiated_by,
+         description,
+         metadata
+       )
+       VALUES
+       (
+         'transfer',
+         'pending',
+         $1,
+         $2,
+         $3::jsonb
+       )
+       RETURNING id, created_at`,
+      [
+        userId,
+        `Transfer from ${sourceAccount.account_number} to ${targetAccount.account_number}`,
+        JSON.stringify({
+          amount_paise: String(amountPaise),
+          currency: "INR",
+          source_account_id: sourceAccountId,
+          target_account_id: targetAccountId
+        })
+      ]
+    );
+
+    const transaction = transactionResult.rows[0];
+
+    // 7. DEBIT SOURCE ACCOUNT
+
+    await client.query(
+      `INSERT INTO ledger_entries
+       (transaction_id, account_id, entry_side, amount_paise)
+       VALUES ($1, $2, 'debit', $3)`,
+      [transaction.id, sourceAccountId, amountPaise]
+    );
+
+    // 8. CREDIT DESTINATION ACCOUNT
+
+    await client.query(
+      `INSERT INTO ledger_entries
+       (transaction_id, account_id, entry_side, amount_paise)
+       VALUES ($1, $2, 'credit', $3)`,
+      [transaction.id, targetAccountId, amountPaise]
+    );
+
+    // 9. UPDATE BOTH ACCOUNT BALANCES
+
+    await client.query(
+      `UPDATE accounts
+       SET balance_paise = balance_paise - $1
+       WHERE id = $2`,
+      [amountPaise, sourceAccountId]
+    );
+
+    await client.query(
+      `UPDATE accounts
+       SET balance_paise = balance_paise + $1
+       WHERE id = $2`,
+      [amountPaise, targetAccountId]
+    );
+
+    // 10. POST TRANSACTION
+
+    await client.query(
+      `UPDATE transactions
+       SET status = 'posted',
+           completed_at = NOW()
+       WHERE id = $1`,
+      [transaction.id]
+    );
+
+    // 11. INSERT AUDIT LOG
+
+    await client.query(
+      `INSERT INTO audit_logs
+       (
+         actor_id,
+         action,
+         resource_type,
+         resource_id,
+         outcome,
+         metadata
+       )
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [
+        userId,
+        "TRANSFER",
+        "transaction",
+        transaction.id,
+        "success",
+        JSON.stringify({
+          source_account_id: sourceAccountId,
+          target_account_id: targetAccountId,
+          amount_paise: String(amountPaise)
+        })
+      ]
+    );
+
+    // 12. INSERT TRANSACTION ATTEMPT
+
+    await client.query(
+      `INSERT INTO transaction_attempts
+       (
+         actor_id,
+         operation,
+         source_account_id,
+         target_account_id,
+         amount_paise,
+         idempotency_key,
+         outcome,
+         reason
+       )
+       VALUES ($1, 'transfer', $2, $3, $4, $5, 'success', $6)`,
+      [
+        userId,
+        sourceAccountId,
+        targetAccountId,
+        amountPaise,
+        idempotencyKey,
+        "Transfer completed successfully"
+      ]
+    );
+
+    // 13. GET UPDATED BALANCES
+
+    const balancesResult = await client.query(
+      `SELECT id, balance_paise
+       FROM accounts
+       WHERE id = ANY($1::uuid[])`,
+      [[sourceAccountId, targetAccountId]]
+    );
+
+    const sourceBalance = balancesResult.rows.find(
+      account => account.id === sourceAccountId
+    ).balance_paise;
+
+    const targetBalance = balancesResult.rows.find(
+      account => account.id === targetAccountId
+    ).balance_paise;
+
+    // 14. PREPARE RESPONSE
+
+    const response = {
+      success: true,
+      message: "Transfer completed successfully",
+
+      transaction: {
+        id: transaction.id,
+        type: "transfer",
+        status: "posted",
+        amount_paise: String(amountPaise),
+        amount_rupees: formatRupees(amountPaise),
+        created_at: transaction.created_at
+      },
+
+      source_account: {
+        id: sourceAccountId,
+        account_number: sourceAccount.account_number,
+        balance_paise: sourceBalance,
+        balance_rupees: formatRupees(sourceBalance)
+      },
+
+      target_account: {
+        id: targetAccountId,
+        account_number: targetAccount.account_number,
+        balance_paise: targetBalance,
+        balance_rupees: formatRupees(targetBalance)
+      },
+
+      currency: "INR",
+      replayed: false
+    };
+
+    // 15. COMPLETE IDEMPOTENCY RECORD
+
+    await client.query(
+      `UPDATE idempotency_keys
+       SET transaction_id = $1,
+           status = 'completed',
+           response_body = $2::jsonb,
+           completed_at = NOW()
+       WHERE user_id = $3
+         AND idempotency_key = $4`,
+      [
+        transaction.id,
+        JSON.stringify(response),
+        userId,
+        idempotencyKey
+      ]
+    );
+
+    // 16. COMMIT
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    return response;
+
+  } catch (error) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+    }
+
+    // Record failed or rejected transfer attempt.
+    try {
+      await pool.query(
+        `INSERT INTO transaction_attempts
+         (
+           actor_id,
+           operation,
+           source_account_id,
+           target_account_id,
+           amount_paise,
+           idempotency_key,
+           outcome,
+           reason
+         )
+         VALUES ($1, 'transfer', $2, $3, $4, $5, $6, $7)`,
+        [
+          userId,
+          sourceAccountId,
+          targetAccountId,
+          amountPaise,
+          idempotencyKey,
+          error.statusCode && error.statusCode < 500
+            ? "rejected"
+            : "failed",
+          error.message.substring(0, 1000)
+        ]
+      );
+    } catch (logError) {
+      console.error(
+        "Transfer attempt logging error:",
+        logError.message
+      );
+    }
+
+    throw error;
+
+  } finally {
+    client.release();
+  }
+};
+
+// =====================================
+// GET ACCOUNT TRANSACTION HISTORY
+// =====================================
+
+const getAccountTransactions = async (userId, accountId) => {
+  // Verify account access
+  const accessResult = await pool.query(
+    `SELECT id
+     FROM account_permissions
+     WHERE user_id = $1
+       AND account_id = $2
+       AND can_view = TRUE`,
+    [userId, accountId]
+  );
+
+  if (accessResult.rowCount === 0) {
+    throw createError("Account not found or access denied", 404);
+  }
+
+  const result = await pool.query(
+    `SELECT
+       t.id AS transaction_id,
+       t.transaction_type,
+       t.status,
+       t.description,
+       t.created_at,
+       le.entry_side,
+       le.amount_paise,
+       t.metadata
+     FROM ledger_entries le
+     INNER JOIN transactions t
+       ON t.id = le.transaction_id
+     WHERE le.account_id = $1
+     ORDER BY t.created_at DESC`,
+    [accountId]
+  );
+
+  return result.rows.map(transaction => ({
+    transaction_id: transaction.transaction_id,
+    type: transaction.transaction_type,
+    status: transaction.status,
+    description: transaction.description,
+    entry_side: transaction.entry_side,
+    amount_paise: String(transaction.amount_paise),
+    amount_rupees: formatRupees(transaction.amount_paise),
+    created_at: transaction.created_at,
+    metadata: transaction.metadata
+  }));
+};
 module.exports = {
   createAccount,
   getUserAccounts,
   getAccountById,
   getAccountBalance,
   depositMoney,
-  withdrawMoney
+  withdrawMoney,
+  transferMoney,
+  getAccountTransactions
 };

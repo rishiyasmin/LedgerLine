@@ -318,7 +318,114 @@ const withdrawMoney = async (req, res) => {
     });
   }
 };
+// =====================================
+// TRANSFER MONEY
+// =====================================
 
+const transferMoney = async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    const { target_account_id, amount_rupees } = req.body;
+
+    const idempotencyKey = req.get("Idempotency-Key");
+
+    // Validate source account ID
+    if (!isValidUUID(accountId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid source account ID"
+      });
+    }
+
+    // Validate destination account ID
+    if (!isValidUUID(target_account_id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid destination account ID"
+      });
+    }
+
+    // Validate transfer amount
+    const amountPaise = convertAmountToPaise(amount_rupees);
+
+    if (!amountPaise) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter a valid transfer amount in rupees"
+      });
+    }
+
+    // Validate idempotency key
+    if (
+      typeof idempotencyKey !== "string" ||
+      !idempotencyKey.trim() ||
+      idempotencyKey.length > 255
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid Idempotency-Key header is required"
+      });
+    }
+
+    // Process transfer
+    const result = await accountService.transferMoney(
+      req.user.id,
+      accountId,
+      target_account_id,
+      amountPaise,
+      idempotencyKey.trim()
+    );
+
+    return res.status(200).json(result);
+
+  } catch (error) {
+    console.error("Transfer error:", error.message);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode
+        ? error.message
+        : "Unable to process transfer"
+    });
+  }
+};
+// =====================================
+// GET ACCOUNT TRANSACTION HISTORY
+// =====================================
+
+const getAccountTransactions = async (req, res) => {
+  try {
+    const { accountId } = req.params;
+
+    if (!isValidUUID(accountId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid account ID"
+      });
+    }
+
+    const transactions = await accountService.getAccountTransactions(
+      req.user.id,
+      accountId
+    );
+
+    return res.status(200).json({
+      success: true,
+      count: transactions.length,
+      transactions
+    });
+
+  } catch (error) {
+    console.error("Transaction history error:", error.message);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode
+        ? error.message
+        : "Unable to retrieve transaction history"
+    });
+  }
+};
 // =====================================
 // EXPORT CONTROLLERS
 // =====================================
@@ -329,5 +436,7 @@ module.exports = {
   getAccountById,
   getAccountBalance,
   depositMoney,
-  withdrawMoney
+  withdrawMoney,
+  transferMoney,
+  getAccountTransactions
 };

@@ -12,7 +12,9 @@ const {
   getAccountById,
   getAccountBalance,
   depositMoney,
-  withdrawMoney
+  withdrawMoney,
+  transferMoney,
+  getAccountTransactions
 } = require("../controllers/accountController");
 
 // All account routes require authentication.
@@ -46,14 +48,24 @@ router.post(
   authorizeRoles("account_holder"),
   withdrawMoney
 );
-
+// Transfer money: account holders only.
+router.post(
+  "/:accountId/transfers",
+  authorizeRoles("account_holder"),
+  transferMoney
+);
 // View account balance.
 router.get(
   "/:accountId/balance",
   authorizeRoles("admin", "account_holder", "auditor"),
   getAccountBalance
 );
-
+// View account transaction history.
+router.get(
+  "/:accountId/transactions",
+  authorizeRoles("admin", "account_holder", "auditor"),
+  getAccountTransactions
+);
 // View account details.
 router.get(
   "/:accountId",
