@@ -1,29 +1,64 @@
+
 const express = require("express");
 
 const router = express.Router();
 
 const authenticateToken = require("../middleware/authMiddleware");
+const authorizeRoles = require("../middleware/roleMiddleware");
 
 const {
   createAccount,
   getUserAccounts,
   getAccountById,
   getAccountBalance,
+  depositMoney,
+  withdrawMoney
 } = require("../controllers/accountController");
 
-// All account routes require authentication
+// All account routes require authentication.
 router.use(authenticateToken);
 
-// Create account
-router.post("/", createAccount);
+// Create account: account holders only.
+router.post(
+  "/",
+  authorizeRoles("account_holder"),
+  createAccount
+);
 
-// Get all accounts belonging to logged-in user
-router.get("/", getUserAccounts);
+// View permitted accounts: all roles.
+// Account-level permissions are checked by the service.
+router.get(
+  "/",
+  authorizeRoles("admin", "account_holder", "auditor"),
+  getUserAccounts
+);
 
-// Get account details
-router.get("/:accountId", getAccountById);
+// Deposit: account holders only.
+router.post(
+  "/:accountId/deposits",
+  authorizeRoles("account_holder"),
+  depositMoney
+);
 
-// Get account balance
-router.get("/:accountId/balance", getAccountBalance);
+// Withdraw: account holders only.
+router.post(
+  "/:accountId/withdrawals",
+  authorizeRoles("account_holder"),
+  withdrawMoney
+);
+
+// View account balance.
+router.get(
+  "/:accountId/balance",
+  authorizeRoles("admin", "account_holder", "auditor"),
+  getAccountBalance
+);
+
+// View account details.
+router.get(
+  "/:accountId",
+  authorizeRoles("admin", "account_holder", "auditor"),
+  getAccountById
+);
 
 module.exports = router;
