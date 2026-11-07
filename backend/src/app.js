@@ -16,7 +16,26 @@ const authenticateToken = require("./middleware/authMiddleware");
 const app = express();
 
 app.use(helmet());
-app.use(cors());
+
+// Allowed frontend origins
+const allowedOrigins = [
+  "http://localhost:5173",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+// CORS configuration
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+  })
+);
+
 app.use(express.json());
 
 // =====================================
