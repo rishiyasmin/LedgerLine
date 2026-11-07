@@ -1,0 +1,454 @@
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, Arial, sans-serif;
+  background: #f5f7f6;
+  color: #172522;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+/* =========================
+   LOGIN AND REGISTER PAGE
+========================= */
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.brand-panel {
+  background: #102a25;
+  color: white;
+  padding: 42px 9%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 25px;
+  font-weight: 750;
+  letter-spacing: -1px;
+}
+
+.brand-icon {
+  background: #1b8d6c;
+  padding: 11px;
+  border-radius: 12px;
+  display: flex;
+}
+
+.brand-accent,
+.mobile-brand span {
+  color: #55d5a5;
+}
+
+.brand-content {
+  max-width: 500px;
+  margin: 65px auto;
+}
+
+.eyebrow,
+.welcome-label {
+  color: #50c99b;
+  font-size: 11px;
+  letter-spacing: 2px;
+  font-weight: 750;
+}
+
+.brand-content h1 {
+  font-size: clamp(42px, 5vw, 65px);
+  line-height: 1.12;
+  letter-spacing: -2px;
+  margin: 22px 0;
+}
+
+.brand-content h1 span {
+  color: #55d5a5;
+}
+
+.brand-content > p {
+  color: #b6c9c2;
+  line-height: 1.8;
+  font-size: 16px;
+  max-width: 420px;
+}
+
+.security-note {
+  margin-top: 55px;
+  padding: 19px;
+  border: 1px solid #36534a;
+  border-radius: 13px;
+  display: flex;
+  gap: 14px;
+  color: #55d5a5;
+}
+
+.security-note div {
+  display: grid;
+  gap: 6px;
+}
+
+.security-note strong {
+  color: white;
+  font-size: 14px;
+}
+
+.security-note small {
+  color: #b6c9c2;
+  line-height: 1.5;
+}
+
+.brand-footer {
+  color: #91aaa0;
+  font-size: 12px;
+}
+
+.form-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 8%;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 430px;
+}
+
+.mobile-brand {
+  display: none;
+}
+
+.card-heading {
+  margin-bottom: 34px;
+}
+
+.card-heading h2 {
+  font-size: 34px;
+  letter-spacing: -1px;
+  margin: 12px 0;
+}
+
+.card-heading p {
+  color: #78847f;
+  font-size: 14px;
+}
+
+/* Login and register inputs */
+
+.auth-card .input-group {
+  display: block;
+  margin-bottom: 21px;
+}
+
+.auth-card .input-group > span {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 9px;
+}
+
+.input-wrap {
+  height: 52px;
+  border: 1px solid #dce4df;
+  border-radius: 9px;
+  background: white;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 11px;
+  color: #8b9992;
+}
+
+.input-wrap:focus-within {
+  border-color: #1b9a70;
+  box-shadow: 0 0 0 3px #1b9a701a;
+}
+
+.input-wrap input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #172522;
+  font-size: 14px;
+}
+
+.password-toggle {
+  background: none;
+  border: none;
+  color: #84918b;
+  cursor: pointer;
+  display: flex;
+}
+
+.auth-card .submit-button {
+  width: 100%;
+  height: 53px;
+  border: none;
+  border-radius: 9px;
+  background: #147c5a;
+  color: white;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  cursor: pointer;
+  margin-top: 28px;
+  transition: background 0.2s;
+}
+
+.auth-card .submit-button:hover {
+  background: #106748;
+}
+
+.auth-card .submit-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.form-message {
+  margin-top: 18px;
+  padding: 13px;
+  border-radius: 8px;
+  background: #e9f6ef;
+  color: #176c4c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.switch-auth {
+  text-align: center;
+  margin-top: 28px;
+  font-size: 13px;
+  color: #7a8781;
+}
+
+.switch-auth button {
+  border: none;
+  background: none;
+  color: #147c5a;
+  font-weight: 750;
+  margin-left: 5px;
+  cursor: pointer;
+}
+
+.secure-caption {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid #e7ece9;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  color: #87938d;
+  font-size: 11px;
+}
+
+/* =========================
+   DEPOSIT MODAL
+========================= */
+
+.transaction-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(10, 20, 35, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.transaction-modal {
+  width: 100%;
+  max-width: 460px;
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 30px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  color: #172033;
+  text-align: left;
+}
+
+.modal-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 15px;
+  margin-bottom: 25px;
+}
+
+.modal-heading h2 {
+  margin: 10px 0;
+  font-size: 24px;
+  color: #172033;
+}
+
+.modal-heading p {
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.modal-close {
+  border: none;
+  background: #f1f5f9;
+  color: #172033;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Deposit form fields */
+
+.transaction-modal .input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 20px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #172033;
+}
+
+.transaction-modal .input-group > span {
+  display: block;
+}
+
+.transaction-modal .input-group input,
+.transaction-modal .input-group select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  font-size: 15px;
+  background: white;
+  color: #172033;
+  outline: none;
+}
+
+.transaction-modal .input-group input:focus,
+.transaction-modal .input-group select:focus {
+  border-color: #059669;
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+}
+
+/* Deposit submit button */
+
+.transaction-modal .submit-button {
+  width: 100%;
+  min-height: 50px;
+  padding: 14px;
+  background: #059669;
+  color: white;
+  border: none;
+  border-radius: 9px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+  transition: background 0.2s;
+}
+
+.transaction-modal .submit-button:hover {
+  background: #047857;
+}
+
+.transaction-modal .submit-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Transaction messages */
+
+.transaction-success,
+.transaction-error {
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.transaction-success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.transaction-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* =========================
+   RESPONSIVE DESIGN
+========================= */
+
+@media (max-width: 800px) {
+  .auth-page {
+    grid-template-columns: 1fr;
+  }
+
+  .brand-panel {
+    display: none;
+  }
+
+  .form-panel {
+    min-height: 100vh;
+    padding: 30px 22px;
+  }
+
+  .mobile-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    color: #147c5a;
+    font-size: 23px;
+    font-weight: 750;
+    margin-bottom: 55px;
+  }
+
+  .auth-card {
+    max-width: 460px;
+  }
+
+  .card-heading h2 {
+    font-size: 29px;
+  }
+}
+
+@media (max-width: 500px) {
+  .transaction-overlay {
+    padding: 12px;
+  }
+
+  .transaction-modal {
+    padding: 22px;
+  }
+}
