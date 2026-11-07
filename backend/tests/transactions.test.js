@@ -31,6 +31,18 @@ describe("LedgerLine Transaction Integration Tests", () => {
       .set("Idempotency-Key", key)
       .send({ amount_rupees: amount });
   };
+  
+  // Transfer money between two test accounts.
+  const transfer = async (sourceAccountId, targetAccountId, amount, key) => {
+    return request(app)
+      .post(`/api/accounts/${sourceAccountId}/transfers`)
+      .set("Authorization", `Bearer ${token}`)
+      .set("Idempotency-Key", key)
+      .send({
+        target_account_id: targetAccountId,
+        amount_rupees: amount
+      });
+  };
 
   // Get the latest account balance.
   const getBalance = async (accountId) => {
@@ -342,4 +354,206 @@ describe("LedgerLine Transaction Integration Tests", () => {
     expect(ledgerBalance).toBe(6000);
     expect(actualBalance).toBe(ledgerBalance);
   });
+  
+  // TEST 11: Successful transfer between accounts.
+  test("should transfer money successfully between two accounts", async () => {
+    const sourceAccountId = await createTestAccount();
+    const targetAccountId = await createTestAccount();
+
+    await deposit(
+      sourceAccountId,
+      "100.00",
+      `transfer-fund-${crypto.randomUUID()}`
+    );
+
+    const response = await transfer(
+      sourceAccountId,
+      targetAccountId,
+      "30.00",
+      `transfer-${crypto.randomUUID()}`
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.transaction.type).toBe("transfer");
+    expect(response.body.transaction.status).toBe("posted");
+
+    expect(await getBalance(sourceAccountId)).toBe(7000);
+    expect(await getBalance(targetAccountId)).toBe(3000);
+  });
+
+  // TEST 12: Duplicate transfer idempotency.
+  test("should not transfer money twice when the same request is replayed", async () => {
+    const sourceAccountId = await createTestAccount();
+    const targetAccountId = await createTestAccount();
+
+    await deposit(
+      sourceAccountId,
+      "100.00",
+      `transfer-fund-${crypto.randomUUID()}`
+    );
+
+    const key = `transfer-replay-${crypto.randomUUID()}`;
+
+    const first = await transfer(
+      sourceAccountId,
+      targetAccountId,
+      "30.00",
+      key
+    );
+
+    const second = await transfer(
+      sourceAccountId,
+      targetAccountId,
+      "30.00",
+      key
+    );
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+
+    expect(second.body.replayed).toBe(true);
+
+    expect(second.body.transaction.id).toBe(
+      first.body.transaction.id
+    );
+
+    expect(await getBalance(sourceAccountId)).toBe(7000);
+    expect(await getBalance(targetAccountId)).toBe(3000);
+  });
+
+  // TEST 13: Concurrent transfer protection.
+  test("should prevent concurrent transfers from overdrawing the source account", async () => {
+    const sourceAccountId = await createTestAccount();
+    const targetAccountId = await createTestAccount();
+    const secondTargetAccountId = await createTestAccount();
+
+    await deposit(
+      sourceAccountId,
+      "50.00",
+      `concurrent-transfer-fund-${crypto.randomUUID()}`
+    );
+
+    const [first, second] = await Promise.all([
+      transfer(
+        sourceAccountId,
+        targetAccountId,
+        "40.00",
+        `concurrent-transfer-a-${crypto.randomUUID()}`
+      ),
+      transfer(
+        sourceAccountId,
+        secondTargetAccountId,
+        "40.00",
+        `concurrent-transfer-b-${crypto.randomUUID()}`
+      )
+    ]);
+
+    const statuses = [first.statusCode, second.statusCode].sort();
+
+    expect(statuses).toEqual([200, 409]);
+
+    expect(await getBalance(sourceAccountId)).toBe(1000);
+
+    const targetBalance = await getBalance(targetAccountId);
+    const secondTargetBalance = await getBalance(secondTargetAccountId);
+
+    expect(targetBalance + secondTargetBalance).toBe(4000);
+  });
+
+  // TEST 14: Unauthorized transfer protection.
+  test("should prevent a user from transferring money from another user's account", async () => {
+    const victimAccountId = await createTestAccount();
+
+    await deposit(
+      victimAccountId,
+      "100.00",
+      `victim-fund-${crypto.randomUUID()}`
+    );
+
+    // Register a different customer.
+    const attackerEmail = `attacker-${crypto.randomUUID()}@example.com`;
+    const attackerPassword = "AttackerPassword123";
+
+    const registerResponse = await request(app)
+      .post("/api/auth/register")
+      .send({
+        full_name: "Unauthorized Test User",
+        email: attackerEmail,
+        password: attackerPassword
+      });
+
+    expect(registerResponse.statusCode).toBe(201);
+
+    // Log in as the different customer.
+    const loginResponse = await request(app)
+      .post("/api/auth/login")
+      .send({
+        email: attackerEmail,
+        password: attackerPassword
+      });
+
+    expect(loginResponse.statusCode).toBe(200);
+
+    const attackerToken = loginResponse.body.token;
+
+    // Attempt to transfer from the victim's account.
+    const response = await request(app)
+      .post(`/api/accounts/${victimAccountId}/transfers`)
+      .set("Authorization", `Bearer ${attackerToken}`)
+      .set("Idempotency-Key", `unauthorized-${crypto.randomUUID()}`)
+      .send({
+        target_account_id: (await createTestAccount()),
+        amount_rupees: "50.00"
+      });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body.success).toBe(false);
+
+    // Victim's money must remain unchanged.
+    expect(await getBalance(victimAccountId)).toBe(10000);
+  });
+
+  // TEST 15: System-wide conservation during internal transfer.
+  test("should conserve total customer money during an internal transfer", async () => {
+    const sourceAccountId = await createTestAccount();
+    const targetAccountId = await createTestAccount();
+
+    await deposit(
+      sourceAccountId,
+      "100.00",
+      `conservation-fund-${crypto.randomUUID()}`
+    );
+
+    // Measure total customer balances before transfer.
+    const beforeResult = await pool.query(
+      `SELECT COALESCE(SUM(balance_paise), 0) AS total
+       FROM accounts
+       WHERE account_type = 'customer'`
+    );
+
+    const totalBefore = BigInt(beforeResult.rows[0].total);
+
+    // Transfer ₹30 internally.
+    const response = await transfer(
+      sourceAccountId,
+      targetAccountId,
+      "30.00",
+      `conservation-transfer-${crypto.randomUUID()}`
+    );
+
+    expect(response.statusCode).toBe(200);
+
+    // Measure total customer balances after transfer.
+    const afterResult = await pool.query(
+      `SELECT COALESCE(SUM(balance_paise), 0) AS total
+       FROM accounts
+       WHERE account_type = 'customer'`
+    );
+
+    const totalAfter = BigInt(afterResult.rows[0].total);
+
+    expect(totalAfter).toBe(totalBefore);
+  });
+
 });

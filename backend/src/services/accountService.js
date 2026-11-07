@@ -1432,8 +1432,9 @@ const transferMoney = async (
 // GET ACCOUNT TRANSACTION HISTORY
 // =====================================
 
+
 const getAccountTransactions = async (userId, accountId) => {
-  // Verify account access
+  // 1. Verify that the user can view this account
   const accessResult = await pool.query(
     `SELECT id
      FROM account_permissions
@@ -1447,7 +1448,8 @@ const getAccountTransactions = async (userId, accountId) => {
     throw createError("Account not found or access denied", 404);
   }
 
-  const result = await pool.query(
+  // 2. Fetch successful ledger entries and their initiators
+  const ledgerResult = await pool.query(
     `SELECT
        t.id AS transaction_id,
        t.transaction_type,
@@ -1456,27 +1458,116 @@ const getAccountTransactions = async (userId, accountId) => {
        t.created_at,
        le.entry_side,
        le.amount_paise,
-       t.metadata
+       t.metadata,
+       u.id AS initiated_by,
+       u.full_name AS initiated_by_name
      FROM ledger_entries le
      INNER JOIN transactions t
        ON t.id = le.transaction_id
-     WHERE le.account_id = $1
-     ORDER BY t.created_at DESC`,
+     LEFT JOIN users u
+       ON u.id = t.initiated_by
+     WHERE le.account_id = $1`,
     [accountId]
   );
 
-  return result.rows.map(transaction => ({
-    transaction_id: transaction.transaction_id,
-    type: transaction.transaction_type,
-    status: transaction.status,
-    description: transaction.description,
-    entry_side: transaction.entry_side,
-    amount_paise: String(transaction.amount_paise),
-    amount_rupees: formatRupees(transaction.amount_paise),
-    created_at: transaction.created_at,
-    metadata: transaction.metadata
-  }));
+  // 3. Fetch rejected and failed attempts involving this account
+  const attemptsResult = await pool.query(
+    `SELECT
+       ta.id AS attempt_id,
+       ta.operation,
+       ta.outcome,
+       ta.reason,
+       ta.amount_paise,
+       ta.created_at,
+       u.id AS initiated_by,
+       u.full_name AS initiated_by_name
+     FROM transaction_attempts ta
+     LEFT JOIN users u
+       ON u.id = ta.actor_id
+     WHERE
+       (ta.source_account_id = $1 OR ta.target_account_id = $1)
+       AND ta.outcome IN ('rejected', 'failed')`,
+    [accountId]
+  );
+
+  // 4. Combine ledger entries and unsuccessful attempts
+  const events = [
+    ...ledgerResult.rows.map(row => ({
+      record_type: "ledger_entry",
+      timestamp: row.created_at,
+      transaction_id: row.transaction_id,
+      type: row.transaction_type,
+      status: row.status,
+      description: row.description,
+      entry_side: row.entry_side,
+      amount_paise: String(row.amount_paise),
+      initiated_by: row.initiated_by,
+      initiated_by_name: row.initiated_by_name,
+      metadata: row.metadata,
+      delta: row.entry_side === "credit"
+        ? BigInt(row.amount_paise)
+        : -BigInt(row.amount_paise)
+    })),
+
+    ...attemptsResult.rows.map(row => ({
+      record_type: "transaction_attempt",
+      timestamp: row.created_at,
+      attempt_id: row.attempt_id,
+      type: row.operation,
+      status: row.outcome,
+      description: row.reason,
+      entry_side: null,
+      amount_paise: row.amount_paise == null
+        ? null
+        : String(row.amount_paise),
+      initiated_by: row.initiated_by,
+      initiated_by_name: row.initiated_by_name,
+      metadata: null,
+      delta: 0n
+    }))
+  ];
+
+  // 5. Sort events chronologically
+  events.sort((a, b) => {
+    const timeDifference =
+      new Date(a.timestamp).getTime() -
+      new Date(b.timestamp).getTime();
+
+    if (timeDifference !== 0) {
+      return timeDifference;
+    }
+
+    // Show an attempt before a ledger entry if timestamps match
+    if (a.record_type !== b.record_type) {
+      return a.record_type === "transaction_attempt" ? -1 : 1;
+    }
+
+    return String(a.transaction_id || a.attempt_id)
+      .localeCompare(String(b.transaction_id || b.attempt_id));
+  });
+
+  // 6. Calculate running balance
+  let runningBalance = 0n;
+
+  return events.map(event => {
+    runningBalance += event.delta;
+
+    const {
+      delta,
+      ...publicEvent
+    } = event;
+
+    return {
+      ...publicEvent,
+      amount_rupees: event.amount_paise === null
+        ? null
+        : formatRupees(event.amount_paise),
+      running_balance_paise: String(runningBalance),
+      running_balance_rupees: formatRupees(runningBalance)
+    };
+  });
 };
+
 module.exports = {
   createAccount,
   getUserAccounts,
