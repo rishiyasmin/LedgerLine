@@ -261,7 +261,7 @@ select {
 }
 
 /* =========================
-   DEPOSIT MODAL
+   TRANSACTION MODALS
 ========================= */
 
 .transaction-overlay {
@@ -317,9 +317,66 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
-/* Deposit form fields */
+.modal-close:hover {
+  background: #e2e8f0;
+}
+
+/* =========================
+   TRANSACTION HISTORY MODAL
+========================= */
+
+.history-modal {
+  position: relative;
+  max-height: 85vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.history-modal .modal-heading {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 15px;
+  background: #ffffff;
+  padding: 10px 0 18px;
+  margin-bottom: 20px;
+}
+
+.history-modal .modal-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-modal .modal-close {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 21;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  color: #172033;
+  border: none;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.history-modal .modal-close:hover {
+  background: #e2e8f0;
+}
+
+/* =========================
+   TRANSACTION FORM FIELDS
+========================= */
 
 .transaction-modal .input-group {
   display: flex;
@@ -354,7 +411,7 @@ select {
   box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
 }
 
-/* Deposit submit button */
+/* Transaction submit button */
 
 .transaction-modal .submit-button {
   width: 100%;
@@ -450,5 +507,16 @@ select {
 
   .transaction-modal {
     padding: 22px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+
+  .history-modal {
+    max-height: 85vh;
+  }
+
+  .history-modal .modal-heading {
+    padding-top: 8px;
+    padding-bottom: 14px;
   }
 }
