@@ -9,9 +9,10 @@ const pool = new Pool({
 
   // Enable SSL for production database connections
   ssl:
-    process.env.NODE_ENV === "production"
-      ? { rejectUnauthorized: false }
-      : false,
+  process.env.DB_SSL === "true" ||
+  process.env.NODE_ENV === "production"
+    ? { rejectUnauthorized: false }
+    : false,
 
   max: 10,
   idleTimeoutMillis: 30000,
