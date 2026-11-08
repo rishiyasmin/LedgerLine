@@ -14,7 +14,9 @@ import axios from 'axios'
 import Dashboard from './Dashboard'
 import './App.css'
 
-const API_URL = 'http://localhost:5000/api'
+const API_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://ledgerline-backend-y3h0.onrender.com/api'
 
 function App() {
   const [isRegister, setIsRegister] = useState(false)
