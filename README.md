@@ -752,9 +752,6 @@ Suggested demonstration flow:
 7.  Explain the admin role, account permissions, double-entry ledger,
     idempotency, and audit trail.
 
-A demo video link can be added here after it has been recorded and
-uploaded.
-
 ## 15. Disclaimer
 
 LedgerLine is an educational and demonstration project. Deposits and
