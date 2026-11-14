@@ -9,16 +9,40 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+
+  timeout: 30000,
 })
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('ledgerline_token')
+// Attach authentication token to API requests
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('ledgerline_token')
 
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+// Handle expired or invalid authentication
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (
+      error.response?.status === 401 &&
+      localStorage.getItem('ledgerline_token')
+    ) {
+      localStorage.removeItem('ledgerline_token')
+      localStorage.removeItem('ledgerline_user')
+
+      window.dispatchEvent(new Event('ledgerline:unauthorized'))
+    }
+
+    return Promise.reject(error)
   }
-
-  return config
-})
+)
 
 export default api
